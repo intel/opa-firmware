@@ -244,6 +244,7 @@ uint32_t dev_mbits;		/* device megabit size */
 int verbose;
 int read_op_cnt = 0;
 char tmp_fname[PATH_MAX];
+bool silence_warnings = false;
 
 const struct size_info {
 	uint32_t dev_id;		/* device */
@@ -1320,9 +1321,67 @@ char *operation_str(int operation)
 	return "<unknown>";
 }
 
+void print_config_change_warning(void) {
+
+		printf(
+"\n"
+"     ***** WARNING *****\n"
+"\n"
+"     Modification of HFI platform configuration may prevent the\n"
+"     HFI from training the link.\n"
+"\n"
+"     Care should be taken to ensure that platform configuration\n"
+"     information being written is correct for the HFI model being\n"
+"     targeted.  If unsure contact support.\n"
+"\n"
+"     ***** WARNING *****\n"
+"\n"
+		);
+}
+
+void verify_with_user(int operation) {
+	char response[128];
+	char *rc;
+
+	printf (
+"\n"
+"To silence this warning see option \"-y\"\n"
+"\n"
+"You are about to %s %s\n"
+"     do you wish too proceed (\"Yes\" to continue)? ",
+		operation_str(operation), resource_file);
+
+	rc = fgets(response, sizeof(response), stdin);
+	if (rc == NULL)
+		exit(1);
+
+	response[strcspn(response, " \t\n\0")] = '\0';
+
+	if (strncmp(response, "Yes", sizeof(response)) != 0)
+		exit(1);
+
+	printf ( "\nProceeding with %s device %s\n",
+		operation_str(operation), resource_file);
+}
+
+void warn_user(int operation, int partition)
+{
+	if (silence_warnings)
+		return;
+
+	if (operation == DO_ERASE || operation == DO_WRITE) {
+		if (partition == PART_CONFIG)
+			print_config_change_warning();
+
+		verify_with_user(operation);
+	}
+}
+
 void do_operation(int operation, int dev_fd, int partition, const char *fname)
 {
 	struct file_info fi;
+
+	warn_user(operation, partition);
 
 	/* open file if needed, get sizes */
 	prepare_file(operation, partition, fname, &fi);
@@ -1441,7 +1500,12 @@ void usage(void)
 "\n"
 "Options:\n"
 "  -b driverfile use the EFI driver file (.efi)\n"
-"  -c configfile use the platform configuration file\n"
+"  -c configfile use the platform configuration file\n",
+		command, command, command, command, command, command);
+
+		print_config_change_warning();
+
+	printf(
 "  -d device     specify the device file to use\n"
 "                or list devices if none is specified\n"
 "%s"
@@ -1454,9 +1518,10 @@ void usage(void)
 "  -v            be more verbose. Also print application version\n"
 "  -V            print the version of the file(s) written in the EPROM\n"
 "  -w            write the given file(s) to the EPROM\n"
+"  -y            Anser (y)es : Silence Warnings and Confirmations\n"
 "  allfile       name of file to use for reading or writing the whole device\n"
 "\n",
-		command, command, command, command, command, command, dev_select_help);
+			dev_select_help);
 }
 
 void only_one_operation(void)
@@ -1500,7 +1565,7 @@ int main(int argc, char **argv)
 	 *    that require an argument but don't have one.  Erase and
 	 *    version expect individual options to not have an argument.
 	 */
-	while ((opt = getopt(argc, argv, "-:bcdehiors:vVw")) != -1) {
+	while ((opt = getopt(argc, argv, "-:bcdehiors:vVwy")) != -1) {
 		switch (opt) {
 		case '\1':
 			if(optarg_dst) {
@@ -1591,6 +1656,9 @@ int main(int argc, char **argv)
 				only_one_operation();
 			operation = DO_VERSION;
 			optarg_dst = NULL;
+			break;
+		case 'y':
+			silence_warnings = true;
 			break;
 		case '?':
 			fprintf(stderr, "Unrecognized option -%c\n", optopt);
