@@ -1301,6 +1301,19 @@ void prepare_file(int op, int partition, const char *fname,
 	}
 }
 
+char *operation_str(int operation)
+{
+	switch (operation) {
+		case DO_NOTHING: return "DO NOTHING";
+		case DO_READ:    return "READ from";
+		case DO_WRITE:   return "WRITE to";
+		case DO_ERASE:   return "ERASE";
+		case DO_INFO:    return "read INFO from";
+		case DO_VERSION: return "read VERSION from";
+	}
+	return "<unknown>";
+}
+
 void do_operation(int operation, int dev_fd, int partition, const char *fname)
 {
 	struct file_info fi;
@@ -1308,7 +1321,7 @@ void do_operation(int operation, int dev_fd, int partition, const char *fname)
 	/* open file if needed, get sizes */
 	prepare_file(operation, partition, fname, &fi);
 	if (verbose) {
-		printf("Operation %d\n", operation);
+		printf("Operation \"%s\"\n", operation_str(operation));
 		printf("File information:\n");
 		printf("  part   %d\n", fi.part);
 		printf("  fname   %s\n", fi.name);
