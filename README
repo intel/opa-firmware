@@ -1,0 +1,10 @@
+# HFI1 Firmware burn tool
+#
+# To build this tool run:
+#
+
+$ mkdir build
+$ cmake
+$ cd build
+$ make
+
