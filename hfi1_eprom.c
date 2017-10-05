@@ -230,14 +230,18 @@ const char version_magic[] = "VersionString:";
  * 13 chars required, rounder up to power of 2
  */
 #define MAX_PCI_BUS_LEN 16
-#define MAX_DEV_NAME 255
+#define MAX_DEV_NAME 256
 #define PCI_SHORT_ADDR(PCI_ADDR) (&(PCI_ADDR)[5])
 
+const char pci_device_path[] = "/sys/bus/pci/devices";
 int num_dev_entries = 0;
 char pci_device_addrs[MAX_DEV_ENTRIES][MAX_PCI_BUS_LEN];
-char resource_file[MAX_DEV_NAME] = "";
-char enable_file[MAX_DEV_NAME] = "";
-const char pci_device_path[] = "/sys/bus/pci/devices";
+const char resource_fmt[] = "%s/%s/resource0";
+char resource_file[sizeof(pci_device_path) + sizeof(resource_fmt) + MAX_PCI_BUS_LEN] = "";
+const char enable_fmt[] = "%s/%s/enable";
+char enable_file[sizeof(pci_device_path) + sizeof(enable_fmt) + MAX_PCI_BUS_LEN] = "";
+const char device_fmt[] = "%s/%s/device";
+char device_file[sizeof(pci_device_path) + sizeof(device_fmt) + MAX_DEV_NAME] = "";
 const char *command;		/* derived command name */
 uint32_t dev_id;		/* EEPROM device identification */
 uint32_t dev_mbits;		/* device megabit size */
@@ -1047,9 +1051,9 @@ bool enable_device()
 void set_pci_files(int entry)
 {
 	snprintf(resource_file, sizeof(resource_file),
-		"%s/%s/resource0", pci_device_path, pci_device_addrs[entry]);
+		resource_fmt, pci_device_path, pci_device_addrs[entry]);
 	snprintf(enable_file, sizeof(enable_file),
-		"%s/%s/enable", pci_device_path, pci_device_addrs[entry]);
+		enable_fmt, pci_device_path, pci_device_addrs[entry]);
 }
 
 bool is_valid_dev(int dev_entry)
@@ -1432,14 +1436,13 @@ void enumerate_devices(void)
 	num_dev_entries = 0;
 	while ((dentry = readdir(dir))) {
 		FILE *file;
-		char dev_file[MAX_DEV_NAME];
 		char buf[7];
 		char *buf_ptr;
 
-		snprintf(dev_file, sizeof(dev_file), "%s/%s/device", pci_device_path, dentry->d_name);
+		snprintf(device_file, sizeof(device_file), device_fmt, pci_device_path, dentry->d_name);
 
 		/* try to open the file, it may error, ignore */
-		file = fopen(dev_file, "r");
+		file = fopen(device_file, "r");
 		if (!file)
 			continue;
 
