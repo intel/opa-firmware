@@ -152,6 +152,12 @@ struct file_info {
 #define DO_INFO	   4
 #define DO_VERSION 5
 
+/* Partitions */
+#define PART_ALL    -1
+#define PART_OPROM   0
+#define PART_CONFIG  1
+#define PART_BULK    2
+
 /* Status Register 1 bits */
 #define SR1_BUSY 0x1	/* the BUSY bit in SR1 */
 
@@ -864,7 +870,7 @@ void print_data_version(struct file_info *fi)
 		return;
 	}
 
-	if (fi->part == 0 || fi->part == 2) {
+	if (fi->part == PART_OPROM || fi->part == PART_BULK) {
 		/* UEFI drivers */
 		/* look for version magic in the data */
 		vers = find_string_in_buffer(buf, size, version_magic);
@@ -884,7 +890,7 @@ void print_data_version(struct file_info *fi)
 				vers_buf[i] = c;
 			}
 		}
-	} else if (fi->part == 1) {
+	} else if (fi->part == PART_CONFIG) {
 		/* platform config file */
 		found = parse_platform_config(buf, size, vers_buf, VBUF_MAX);
 	} else {
@@ -1173,9 +1179,9 @@ const char *file_name(int part)
 		return "whole chip";
 
 	switch (part) {
-	case 0: return "loader file";
-	case 1: return "config file";
-	case 2: return "driver file";
+	case PART_OPROM: return "loader file";
+	case PART_CONFIG: return "config file";
+	case PART_BULK: return "driver file";
 	}
 	return "unknown";
 }
@@ -1205,13 +1211,13 @@ void prepare_file(int op, int partition, const char *fname,
 	if (fi->part < 0) {
 		fi->start = 0;
 		fi->bsize = (dev_mbits * ((1024*1024) / 8));
-	} else if (fi->part == 0) {
+	} else if (fi->part == PART_OPROM) {
 		fi->start = 0;
 		fi->bsize = P0_SIZE;
-	} else if (fi->part == 1) {
+	} else if (fi->part == PART_CONFIG) {
 		fi->start = P1_START;
 		fi->bsize = P1_SIZE;
-	} else if (fi->part == 2) {
+	} else if (fi->part == PART_BULK) {
 		fi->start = P2_START;
 		if (dev_mbits == 0)
 			fi->bsize = 0;
@@ -1721,11 +1727,11 @@ int main(int argc, char **argv)
 		} else {
 			/* doing an individual partition operation */
 			if (do_oprom_part)
-				do_operation(operation, dev_fd, 0, oprom_name);
+				do_operation(operation, dev_fd, PART_OPROM, oprom_name);
 			if (do_bulk_part)
-				do_operation(operation, dev_fd, 2, bulk_name);
+				do_operation(operation, dev_fd, PART_BULK, bulk_name);
 			if (do_config_part)
-				do_operation(operation, dev_fd, 1, config_name);
+				do_operation(operation, dev_fd, PART_CONFIG, config_name);
 		}
 
 	device_cleanup:
