@@ -1093,17 +1093,22 @@ bool enable_device()
 	return true;
 }
 
-void set_pci_files(int entry)
+bool is_valid_dev(int dev_entry)
 {
+        return dev_entry >= 0 && dev_entry < num_dev_entries;
+}
+
+bool set_pci_files(int entry)
+{
+	if(!is_valid_dev(entry))
+		return false;
+
 	snprintf(resource_file, sizeof(resource_file),
 		resource_fmt, pci_device_path, pci_device_addrs[entry]);
 	snprintf(enable_file, sizeof(enable_file),
 		enable_fmt, pci_device_path, pci_device_addrs[entry]);
-}
 
-bool is_valid_dev(int dev_entry)
-{
-	return dev_entry >= 0 && dev_entry < num_dev_entries;
+	return true;
 }
 
 void list_all_devices(FILE* file)
@@ -1134,15 +1139,13 @@ bool choose_device(const char* dev_name, int* last_dev)
 			return false;
 
 		set_pci_files(0);
+
 		*last_dev = 0;
 
 	} else if (!strcmp(dev_name, "all")) {
 		*last_dev += 1;
-
-		if(!is_valid_dev(*last_dev))
+		if(!set_pci_files(*last_dev))
 			return false;
-
-		set_pci_files(*last_dev);
 
 	} else if (i = atoi(dev_name), sprintf(buffer, "%d", i),
 			0 == strcmp(dev_name, buffer)) {
@@ -1150,11 +1153,9 @@ bool choose_device(const char* dev_name, int* last_dev)
 		if(is_valid_dev(*last_dev))
 			return false;
 
-		if (i >= num_dev_entries) {
+		if (!set_pci_files(i))
 			invalid_device();
-		}
 
-		set_pci_files(i);
 		*last_dev = i;
 	} else {
 		if(is_valid_dev(*last_dev))
