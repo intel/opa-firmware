@@ -65,6 +65,10 @@
 
 #define NO_4KB_BLOCK_ERASE_WA 1
 
+
+#define MAX_PLATFORM_CONFIG_SIZE           2048
+#define PLATFORM_CONFIG_FORMAT_4_FILE_SIZE  528
+
 /*
  * Dividing points between the partitions.
  */
@@ -744,12 +748,11 @@ int parse_platform_config(const void *buffer, int size, char *out_buf,
 		printf("%s: file length %d (buffer size %d)\n",
 			__func__, file_length, size);
 	}
-	if (file_length > size) {
-		printf("%s: file length %d is larger than buffer %d\n",
-			__func__, file_length, size);
-		return 0; /* fail */
-	}
-	ptr++;
+
+	if (file_length > MAX_PLATFORM_CONFIG_SIZE)
+		file_length = PLATFORM_CONFIG_FORMAT_4_FILE_SIZE;
+	else
+		ptr++;
 
 	/* this is the valid bounds within the file */
 	end = (uint32_t *)(buffer + file_length);
