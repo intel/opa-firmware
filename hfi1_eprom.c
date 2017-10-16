@@ -220,8 +220,8 @@ enum platform_config_system_table_fields {
 /* string in front of the verison string for oprom and driver files */
 const char version_magic[] = "VersionString:";
 
-/* buffer size for platform config node string */
-#define VBUF_MAX 64
+/* buffer size for platform config version info */
+#define VBUF_MAX 128
 #define MAX_DEV_ENTRIES 128
 
 #ifndef PATH_MAX
@@ -253,6 +253,7 @@ int verbose;
 int read_op_cnt = 0;
 char tmp_fname[PATH_MAX];
 bool silence_warnings = false;
+bool print_meta = false;
 
 const struct size_info {
 	uint32_t dev_id;		/* device */
@@ -712,6 +713,35 @@ void *find_string_in_buffer(const uint8_t *buffer, int size, const char *str)
 	return NULL; /* not found */
 }
 
+static char *print_meta_ver(const uint32_t *sys_table_data,
+			    uint32_t meta_ver_field_def,
+			    char *str, size_t size)
+{
+	uint32_t mask;
+	int offset = 0;
+	int len = 0;
+
+	if (meta_ver_field_def == 0) {
+		snprintf(str, size, "[meta : <unknown>]");
+		goto done;
+	}
+
+	mask = mask_of(METADATA_TABLE_FIELD_START_LEN_BITS);
+	offset = meta_ver_field_def & mask;
+
+	meta_ver_field_def >>= METADATA_TABLE_FIELD_LEN_SHIFT;
+	mask = mask_of(METADATA_TABLE_FIELD_LEN_LEN_BITS);
+	len = meta_ver_field_def & mask;
+
+	offset /= 8;	/* change to bytes */
+
+	meta_ver_field_def = *((uint8_t *)sys_table_data + offset) & mask_of(len);
+	snprintf(str, size, "[meta : 0x%0*X]", len/4, meta_ver_field_def);
+
+done:
+	return str;
+}
+
 /*
  * Look through the platform config file in buffer and extract the
  * NODE_STRING, placing it in out_buf.
@@ -733,6 +763,7 @@ int parse_platform_config(const void *buffer, int size, char *out_buf,
 	int found_metadata = 0;
 	int ns_start = 0;
 	int ns_len = 0;
+	uint32_t meta_ver_field_def = 0;
 
 	/* read magic */
 	temp = *ptr;
@@ -795,6 +826,7 @@ int parse_platform_config(const void *buffer, int size, char *out_buf,
 			} else { /* the metadata */
 				ns_metadata = *(ptr + SYSTEM_TABLE_NODE_STRING);
 				found_metadata = 1;
+				meta_ver_field_def = *(ptr + SYSTEM_TABLE_META_VERSION);
 			}
 		}
 
@@ -849,6 +881,16 @@ int parse_platform_config(const void *buffer, int size, char *out_buf,
 	/* copy into alreay-zeroed buffer, with an extra nul */
 	vers = ((const char *)sys_table_data) + ns_start;
 	memcpy(out_buf, vers, ns_len);
+
+	if (print_meta) {
+		ns_len = strlen(out_buf);
+		out_buf[ns_len] = ' ';
+		ns_len++;
+		out_buf += ns_len;
+		out_size -= ns_len;
+		print_meta_ver(sys_table_data, meta_ver_field_def,
+			       out_buf, out_size);
+	}
 
 	return 1; /* success */
 }
@@ -1571,7 +1613,7 @@ int main(int argc, char **argv)
 	 *    that require an argument but don't have one.  Erase and
 	 *    version expect individual options to not have an argument.
 	 */
-	while ((opt = getopt(argc, argv, "-:bcdehiors:vVwy")) != -1) {
+	while ((opt = getopt(argc, argv, "-:bcdehiors:vVwym")) != -1) {
 		switch (opt) {
 		case '\1':
 			if(optarg_dst) {
@@ -1662,6 +1704,9 @@ int main(int argc, char **argv)
 				only_one_operation();
 			operation = DO_VERSION;
 			optarg_dst = NULL;
+			break;
+		case 'm':
+			print_meta = true;
 			break;
 		case 'y':
 			silence_warnings = true;
