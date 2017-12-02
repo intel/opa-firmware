@@ -1948,7 +1948,7 @@ int main(int argc, char **argv)
 	if (!service_mode &&
 	    !(operation == DO_UPDATE || operation == DO_VERSION)) {
 		usage();
-		exit(0);
+		exit(1);
 	}
 
 	if ((operation == DO_ERASE || operation == DO_VERSION) && (all_name ||
