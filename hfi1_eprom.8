@@ -1,0 +1,96 @@
+.TH hfi1_eprom 8
+'Copyright (C) 2014-2016. Intel Corporation. All rights reserved.
+'This is not free software.
+'Redistribution or modification is prohibited without the prior express
+'written permission of Intel Corporation.
+.SH NAME
+hfi1_eprom \- Write/read an Intel Fabric HFI1 card EPROM
+.SH SYNOPSIS
+.B hfi1_eprom
+-w [-o loaderfile][-c configfile][-b driverfile][allfile]
+.br
+.B hfi1_eprom
+-r [-o loaderfile][-c configfile][-b driverfile][allfile]
+.br
+.B hfi1_eprom
+-e [-o][-c][-b]
+.br
+.B hfi1_eprom
+-V [-o][-c][-b]
+.br
+.B hfi1_eprom
+-i
+.br
+.B hfi1_eprom
+-h
+.br
+.SH DESCRIPTION
+.P
+.B hfi1_eprom
+is used to write, read, erase, or query the EPROM attached to Intel fabric HFI1 boards.
+.P
+The EPROM is divided into three named files: loader, config, and driver.
+The loader file is the first 128 KiB of the EPROM and is visible to PCI
+as an Option ROM.  The next 4 KiB is for link device configuration file.
+The rest of the EPROM is the driver file.  Its size depends on the
+SPI flash part used.  This tool will automatically determine the part size
+based on the part device identifier.  Sizes will be 16, 32, 64, or 128 Mbits.
+.P
+EPROM updates will usually consist of an oprom and bulk file.  The
+config file is expected to be updated by OEMs for their specific hardware.
+.SH OPTIONS
+.TP 14
+.BI -b \ driverfile
+Read, write, or erase the driver (.efi) file.  Use driverfile as a destination
+for a read, or as a source for a write.  Do not specify driverfile for erase.
+.TP 14
+.BI -c \ configfile
+Read, write, or erase the platform configuration file.  Use configfile as
+a destination for a read, or as a source for a write.  Do not specify
+configfile for erase.
+.TP 14
+.BI -d \ device
+Specify the device file to use. The default method which uses the resource0
+file will attempt to autodetect the first device. This can be changed by
+pointing to the correct file found in /sys/bus/pci/devices/XXXXX/resource0.
+.TP 14
+.BI -e
+Erase the given file or the whole chip, if no file is given.
+.TP 14
+.BI -h
+Print a help message.
+.TP 14
+.BI -i
+Print the EPROM device ID.  This is the default action if no arguments
+are given.
+.TP 14
+.BI -o \ loaderfile
+Read, write, or erase the loader option rom (.rom) file.  Use loaderfile as
+a destination for a read, or as a source for a write.  Do not specify
+loaderfile for erase.
+.TP 14
+.BI -r
+Read from the EPROM and place the result in the corresponding
+file name.  If no individual files are given, the whole device is read.
+.TP 14
+.BI -s \ size
+Override the EPROM size.  Size must be a power of 2 and is specified in Mbits.
+Only use this if the size cannot automatically be determined.
+.TP 14
+.BI -v
+Print more verbose messages.
+.TP 14
+.BI -V
+Print the version of the file written in the EPROM.
+.TP 14
+.BI -w
+Write each given file to the EPROM.  If no individual files are given,
+the whole device is written.
+.TP 14
+.BI allfile
+Read or write the whole EPROM from or to this file, depending on the
+operation.
+.SH COPYRIGHT
+Copyright (C) 2014-2016. Intel Corporation. All rights reserved.
+.SH AUTHOR
+Intel Corporation.
