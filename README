@@ -3,8 +3,5 @@
 # To build this tool run:
 #
 
-$ mkdir build
-$ cmake
-$ cd build
 $ make
 
