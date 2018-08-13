@@ -54,7 +54,7 @@
 cmake_minimum_required(VERSION 2.6)
 project(opa-firmware C)
 
-set(PACKAGE_VERSION "1")
+set(PACKAGE_VERSION "2")
 
 configure_file (
 	"${PROJECT_SOURCE_DIR}/config.h.in"

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2015-2017 Intel Corporation.
+ * Copyright(c) 2015-2018 Intel Corporation.
  *
  * This file is provided under a dual BSD/GPLv2 license.  When using or
  * redistributing this file, you may do so under either license.
@@ -156,6 +156,7 @@ struct file_info {
 #define DO_INFO	   4
 #define DO_VERSION 5
 #define DO_UPDATE  6
+#define DO_EFI_VERSION 7
 
 /* Partitions */
 #define PART_NONE   -2
@@ -1616,6 +1617,50 @@ done:
 	return part;
 }
 
+void get_attached_driver() {
+	FILE *pp;
+	FILE *check_hfi;
+	FILE *Version;
+	int hfi_device = 0;
+	int i,j;
+
+	char *line;
+	char buf[1000];
+	char command[1000];
+
+	printf("HFI UEFI driver was attached to following PCI devices\n");
+	pp = popen("ls /sys/firmware/efi/efivars/*-driver-version-* 2> /dev/null", "r");
+
+	if (pp != NULL) {
+		for(line = fgets(buf, sizeof buf, pp); line != NULL; line = fgets(buf, sizeof buf, pp)) {
+			j= 0; i = 0;
+			while(line[j] != '-') {
+				if( line[j] == '\n') {
+					break;
+				}
+				if( line[j] == '/') {
+					i = j;
+				}
+				j++;
+			}
+			line[j] = '\0';
+			strcpy(command, "lspci -s ");
+			strcat (command,(line + i + 1));
+			strcat (command," | grep HFI");
+			check_hfi = popen(command, "r");
+			if(fgets(command, sizeof command, check_hfi)){
+				strcpy(command, "cat /sys/firmware/efi/efivars/");
+				strcat (command,(line + i + 1));
+				strcat (command,"-driver-version-* | sed -e 's/[^A-Z0-9a-z.]//g'");
+				Version = popen(command, "r");
+				printf("Device: %s \tDriver Version: %s\n", (line + i + 1), fgets(command, sizeof command, Version));
+				pclose(Version);
+			}
+			pclose(check_hfi);
+		}
+	}
+	pclose(pp);
+}
 
 void usage(void)
 {
@@ -1688,6 +1733,7 @@ void usage(void)
 	       "  -i              print the EPROM device ID\n"
 	       "  -s size         override EPROM size, must be power of 2, in Mbits\n"
 	       "  -y              Answer (y)es : Silence warnings and confirmations\n"
+	       "  -z              show actual version of UEFI driver attached to HFIs\n"
 	       "\n");
 }
 
@@ -1700,7 +1746,7 @@ void only_one_operation(void)
 
 void do_error(const char *message)
 {
-	fprintf(stderr, message);
+	fprintf(stderr, "%s", message);
 	usage();
 	exit(1);
 }
@@ -1742,7 +1788,7 @@ int main(int argc, char **argv)
 	 *    that require an argument but don't have one.  Erase and
 	 *    version expect individual options to not have an argument.
 	 */
-	while ((opt = getopt(argc, argv, "-:bcdeShiors:vVwuym")) != -1) {
+	while ((opt = getopt(argc, argv, "-:bcdeShiors:vVwuymz")) != -1) {
 		switch (opt) {
 		case '\1':
 			if(!optarg_dst) {
@@ -1855,6 +1901,9 @@ int main(int argc, char **argv)
 		case 'y':
 			silence_warnings = true;
 			break;
+		case 'z':
+                        operation = DO_EFI_VERSION;
+                        break;
 		case 'S':
 			service_mode = true;
 			break;
@@ -1876,6 +1925,17 @@ int main(int argc, char **argv)
 	if (do_list_devices) {
 		list_all_devices(stdout);
 		exit(0);
+	}
+
+
+	if (operation == DO_EFI_VERSION) {
+		if (service_mode == true) {
+			get_attached_driver();
+			exit(0);
+		} else {
+			usage();
+			exit(0);
+		}
 	}
 
 	if (operation == DO_UPDATE) {
