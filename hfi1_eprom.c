@@ -1621,7 +1621,6 @@ void get_attached_driver() {
 	FILE *pp;
 	FILE *check_hfi;
 	FILE *Version;
-	int hfi_device = 0;
 	int i,j;
 
 	char *line;
