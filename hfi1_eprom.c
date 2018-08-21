@@ -1624,13 +1624,15 @@ void get_attached_driver() {
 	int i,j;
 
 	char *line;
-	char buf[1000];
-	char command[1000];
+	char buf[256];
+	char command[256];
+	char command2[256];
+	char command3[256];
+	char res[256];
 
 	printf("HFI UEFI driver was attached to following PCI devices\n");
 	pp = popen("ls /sys/firmware/efi/efivars/*-driver-version-* 2> /dev/null", "r");
-
-	if (pp != NULL) {
+	if (pp) {
 		for(line = fgets(buf, sizeof buf, pp); line != NULL; line = fgets(buf, sizeof buf, pp)) {
 			j= 0; i = 0;
 			while(line[j] != '-') {
@@ -1644,21 +1646,27 @@ void get_attached_driver() {
 			}
 			line[j] = '\0';
 			strcpy(command, "lspci -s ");
-			strcat (command,(line + i + 1));
-			strcat (command," | grep HFI");
+			strcat(command,(line + i + 1));
+			strcat(command," | grep HFI");
 			check_hfi = popen(command, "r");
-			if(fgets(command, sizeof command, check_hfi)){
-				strcpy(command, "cat /sys/firmware/efi/efivars/");
-				strcat (command,(line + i + 1));
-				strcat (command,"-driver-version-* | sed -e 's/[^A-Z0-9a-z.]//g'");
-				Version = popen(command, "r");
-				printf("Device: %s \tDriver Version: %s\n", (line + i + 1), fgets(command, sizeof command, Version));
-				pclose(Version);
+			if (check_hfi) {
+				if(fgets(command2, sizeof command2, check_hfi)){
+					strcpy(command3, "cat /sys/firmware/efi/efivars/");
+					strcat (command3,(line + i + 1));
+					strcat (command3,"-driver-version-* | sed -e 's/[^A-Z0-9a-z.]//g'");
+					Version = popen(command3, "r");
+					if (Version) {
+						if (fgets(res, sizeof res, Version))
+							printf("Device: %s \tDriver Version: %s\n", (line + i + 1), res);
+						pclose(Version);
+					}
+				}
+				pclose(check_hfi);
 			}
-			pclose(check_hfi);
 		}
+		pclose(pp);
 	}
-	pclose(pp);
+
 }
 
 void usage(void)
