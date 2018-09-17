@@ -256,8 +256,6 @@ const char *command;		/* derived command name */
 uint32_t dev_id;		/* EEPROM device identification */
 uint32_t dev_mbits;		/* device megabit size */
 int verbose;
-int read_op_cnt = 0;
-char tmp_fname[PATH_MAX];
 bool silence_warnings = false;
 bool print_meta = false;
 bool service_mode = false;
@@ -1264,11 +1262,19 @@ void prepare_file(int op, int partition, const char *fname,
 	ssize_t nread;
 	int flags;
 	mode_t mode;
+	struct stat st;
+	int read_op_cnt = 0;
 
 	fi->name = fname;
-	if(op == DO_READ && read_op_cnt++ > 0)
+	if(op == DO_READ)
 	{
-		snprintf(tmp_fname, ARRAY_SIZE(tmp_fname), "%s_%d", fname, read_op_cnt-1);
+		char tmp_fname[PATH_MAX];
+
+		strncpy(tmp_fname, fname, ARRAY_SIZE(tmp_fname)-1);
+		tmp_fname[ARRAY_SIZE(tmp_fname)-1] = '\0';
+		while (!stat(tmp_fname, &st))
+			snprintf(tmp_fname, ARRAY_SIZE(tmp_fname), "%s_%d",
+				 fname, read_op_cnt++);
 		fi->name = tmp_fname;
 	}
 
