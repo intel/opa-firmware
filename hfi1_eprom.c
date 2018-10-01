@@ -139,7 +139,7 @@ void *reg_mem = NULL;
 const char pci_eprom_device[] = "0x24f0";
 
 struct file_info {
-	const char *name;	/* name for the file */
+	char *name;	        /* name for the file */
 	size_t fsize;		/* file size, in bytes */
 	size_t bsize;		/* buffer size, in bytes */
 	void *buffer;		/* memory allocated buffer */
@@ -518,6 +518,7 @@ void do_write(int dev_fd, struct file_info *fi);
 void do_read(int dev_fd, struct file_info *fi);
 void prepare_file(int op, int partition, const char *fname,
 		  struct file_info *fi);
+void clean_file(struct file_info *fi);
 
 /*
  * Alternative erase range routine that does not use block erase commands.
@@ -544,6 +545,7 @@ void erase_range_slow(int dev_fd, uint32_t start, uint32_t len)
 
 	memset(tmp_fi.buffer + start, 0xff, len);
 	do_write(dev_fd, &tmp_fi);
+	clean_file(&tmp_fi);
 }
 #endif
 
@@ -1265,17 +1267,26 @@ void prepare_file(int op, int partition, const char *fname,
 	struct stat st;
 	int read_op_cnt = 0;
 
-	fi->name = fname;
-	if(op == DO_READ)
-	{
-		char tmp_fname[PATH_MAX];
+	if (fname) {
+		if(op == DO_READ)
+		{
+			char tmp_fname[PATH_MAX] = { 0 };
 
-		strncpy(tmp_fname, fname, ARRAY_SIZE(tmp_fname)-1);
-		tmp_fname[ARRAY_SIZE(tmp_fname)-1] = '\0';
-		while (!stat(tmp_fname, &st))
-			snprintf(tmp_fname, ARRAY_SIZE(tmp_fname), "%s_%d",
-				 fname, read_op_cnt++);
-		fi->name = tmp_fname;
+			strncpy(tmp_fname, fname, ARRAY_SIZE(tmp_fname)-1);
+			while (!stat(tmp_fname, &st))
+				snprintf(tmp_fname, ARRAY_SIZE(tmp_fname) - 1,
+					 "%s_%d", fname, read_op_cnt++);
+			fi->name = strdup(tmp_fname);
+		} else {
+			fi->name = strdup(fname);
+		}
+		if (!fi->name) {
+			fprintf(stderr,
+				"Unable to allocate memory for filename\n");
+			exit(1);
+		}
+	} else {
+		fi->name = NULL;
 	}
 
 	fi->part = partition;
@@ -1380,6 +1391,16 @@ void prepare_file(int op, int partition, const char *fname,
 
 		add_magic_bits_to_image(sbuf.st_size, fi->bsize, fi->buffer);
 	}
+}
+
+void clean_file(struct file_info *fi)
+{
+	if (fi->name)
+		free(fi->name);
+	if (fi->fd >= 0)
+		close(fi->fd);
+	if (fi->buffer)
+		free(fi->buffer);
 }
 
 char *operation_str(int operation)
@@ -1491,10 +1512,7 @@ void do_operation(int operation, int dev_fd, int partition, const char *fname)
 		do_read_version(dev_fd, &fi);
 	}
 
-	if (fi.fd >= 0)
-		close(fi.fd);
-	if (fi.buffer)
-		free(fi.buffer);
+	clean_file(&fi);
 }
 
 /*
