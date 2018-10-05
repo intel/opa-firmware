@@ -536,7 +536,7 @@ void erase_range_slow(int dev_fd, uint32_t start, uint32_t len)
 	do_read(dev_fd, &tmp_fi);
 	if (is_all_1s(tmp_fi.buffer + start, len)) {
 		/* partition to erase is empty, we are done */
-		return;
+		goto done;
 	}
 
 	if (verbose)
@@ -545,6 +545,7 @@ void erase_range_slow(int dev_fd, uint32_t start, uint32_t len)
 
 	memset(tmp_fi.buffer + start, 0xff, len);
 	do_write(dev_fd, &tmp_fi);
+done:
 	clean_file(&tmp_fi);
 }
 #endif
@@ -1328,6 +1329,11 @@ void prepare_file(int op, int partition, const char *fname,
 			mode = 0;
 		}
 
+		if (!fi->name) {
+			fprintf(stderr,
+				"Cannot open empty filename\n");
+			exit(1);
+		}
 		fi->fd = open(fi->name, flags, mode);
 		if (fi->fd < 0) {
 			fprintf(stderr, "Cannot open file \"%s\": %s\n",
