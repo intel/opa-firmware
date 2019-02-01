@@ -108,7 +108,20 @@
 #define ASIC_EEP_ADDR_CMD   (ASIC + 0x000000000308)
 #define ASIC_EEP_DATA	    (ASIC + 0x000000000310)
 #define MAP_SIZE	    (ASIC + 0x000000000318)
+
+/*
+* PCI Config register offsets
+*/
+#define PCIE_EEP_CTL_STAT    0xF00
+#define PCIE_EEP_ADDR_CMD    0xF04
+#define PCIE_EEP_DATA        0xF08
+
+/*
+* memory mapped ASIC or PCI Config access
+*/
 void *reg_mem = NULL;
+bool access_mode = false;        /* false = config space vs true = ASIC */
+int exprom_wp_fd;
 
 /*
  * Commands
@@ -247,14 +260,20 @@ const char version_magic[] = "VersionString:";
 const char pci_device_path[] = "/sys/bus/pci/devices";
 int num_dev_entries = 0;
 char pci_device_addrs[MAX_DEV_ENTRIES][MAX_PCI_BUS_LEN];
+const char ib_device_path_fmt[] = "%s/%s/infiniband";
+char ib_device_path[sizeof(pci_device_path) + sizeof(ib_device_path_fmt) + MAX_PCI_BUS_LEN] = "";
 const char resource_fmt[] = "%s/%s/resource0";
 char resource_file[sizeof(pci_device_path) + sizeof(resource_fmt) + MAX_PCI_BUS_LEN] = "";
+const char config_fmt[] = "%s/%s/config";
+char config_file[sizeof(pci_device_path) + sizeof(config_fmt) + MAX_PCI_BUS_LEN] = "";
 const char enable_fmt[] = "%s/%s/enable";
 char enable_file[sizeof(pci_device_path) + sizeof(enable_fmt) + MAX_PCI_BUS_LEN] = "";
 const char vendor_fmt[] = "%s/%s/vendor";
 char vendor_file[sizeof(pci_device_path) + sizeof(vendor_fmt) + MAX_DEV_NAME] = "";
 const char device_fmt[] = "%s/%s/device";
 char device_file[sizeof(pci_device_path) + sizeof(device_fmt) + MAX_DEV_NAME] = "";
+const char exprom_wp_fmt[] = "/sys/kernel/debug/hfi1/%s/exprom_wp";
+char exprom_wp_file[sizeof(exprom_wp_fmt) + MAX_DEV_NAME] = "";
 const char *command;		/* derived command name */
 uint32_t dev_id;		/* EEPROM device identification */
 uint32_t dev_mbits;		/* device megabit size */
@@ -366,25 +385,77 @@ const char *file_name(int part);
 uint32_t __attribute__ ((noinline)) read_reg(int fd, uint32_t csr)
 {
 	volatile uint64_t reg;
+	off_t offset;
+	uint32_t data;
 
-	if (csr >= MAP_SIZE ) {
-		fprintf(stderr, "Unable to read from %x, out of range: max %x\n", csr, MAP_SIZE);
-		exit(1);
+        if (access_mode) {
+		if (csr >= MAP_SIZE ) {
+			fprintf(stderr, "Unable to read from %x, out of range: max %x\n", csr, MAP_SIZE);
+			exit(1);
+		}
+
+		reg = *(uint64_t *)(reg_mem + csr);
+
+		return reg;
+	} else {
+		if (csr == ASIC_EEP_CTL_STAT)
+			offset = PCIE_EEP_CTL_STAT;
+		else if (csr == ASIC_EEP_ADDR_CMD)
+			offset = PCIE_EEP_ADDR_CMD;
+		else if (csr == ASIC_EEP_DATA)
+			offset = PCIE_EEP_DATA;
+		else {
+			fprintf(stderr, "Unable to read from %x, unsupported CSR\n", csr);
+                        exit(1);
+		}
+
+		if (lseek(fd, offset, SEEK_SET) != offset) {
+			fprintf(stderr, "Failed to set config offset to %x - %s\n", offset, strerror(errno));
+                        exit(1);
+		}
+		if (read(fd, &data, sizeof(uint32_t)) != sizeof(uint32_t)) {
+			fprintf(stderr, "Failed to read config offset %x - %s\n", offset, strerror(errno));
+			exit(1);
+		}
+
+		return data;
 	}
-
-	reg = *(uint64_t *)(reg_mem + csr);
-
 	return reg;
 }
 
 void __attribute__ ((noinline)) write_reg(int fd, uint32_t csr, volatile uint32_t val)
 {
-	if (csr >= MAP_SIZE) {
-		fprintf(stderr, "Unable to write to %x, out of range: max %x\n", csr, MAP_SIZE);
-		exit(1);
-	}
+	off_t offset;
+	uint32_t data = val;
 
-	*(uint64_t *)((char *)reg_mem + csr) = val;
+        if (access_mode) {
+                if (csr >= MAP_SIZE ) {
+                        fprintf(stderr, "Unable to write to %x, out of range: max %x\n", csr, MAP_SIZE);
+                        exit(1);
+                }
+
+                *(uint64_t *)((char *)reg_mem + csr) = val;
+        } else {
+                if (csr == ASIC_EEP_CTL_STAT)
+                        offset = PCIE_EEP_CTL_STAT;
+                else if (csr == ASIC_EEP_ADDR_CMD)
+                        offset = PCIE_EEP_ADDR_CMD;
+                else if (csr == ASIC_EEP_DATA)
+                        offset = PCIE_EEP_DATA;
+                else {
+                        fprintf(stderr, "Unable to write to %x, unsupported CSR\n", csr);
+                        exit(1);
+                }
+
+                if (lseek(fd, offset, SEEK_SET) != offset) {
+                        fprintf(stderr, "Failed to set config offset to %x - %s\n", offset, strerror(errno));
+                        exit(1);
+                }
+                if (write(fd, &data, sizeof(uint32_t)) != sizeof(uint32_t)) {
+                        fprintf(stderr, "Failed to write config offset %x - %s\n", offset, strerror(errno));
+                        exit(1);
+                }
+        }
 }
 
 int is_all_1s(const uint8_t *buffer, int size)
@@ -1028,17 +1099,31 @@ void do_read_file(int dev_fd, struct file_info *fi)
 
 void write_enable(int dev_fd)
 {
-	/* raise signal */
-	write_reg(dev_fd, ASIC_GPIO_OUT, EPROM_WP_N);
-	/* raise enable */
-	write_reg(dev_fd, ASIC_GPIO_OE, EPROM_WP_N);
+	if (access_mode) {
+		/* raise signal */
+		write_reg(dev_fd, ASIC_GPIO_OUT, EPROM_WP_N);
+		/* raise enable */
+		write_reg(dev_fd, ASIC_GPIO_OE, EPROM_WP_N);
+	} else {
+
+		char boolean_value = '1';
+
+                write(exprom_wp_fd, &boolean_value, sizeof(boolean_value));
+	}
 }
 
 void write_disable(int dev_fd)
 {
-	/* assumes output already enabled */
-	write_reg(dev_fd, ASIC_GPIO_OUT, 0);	/* lowers signal */
-	write_reg(dev_fd, ASIC_GPIO_OE, 0);	/* remove enable */
+	if (access_mode) {
+		/* assumes output already enabled */
+		write_reg(dev_fd, ASIC_GPIO_OUT, 0);	/* lowers signal */
+		write_reg(dev_fd, ASIC_GPIO_OE, 0);	/* remove enable */
+	} else {
+
+                char boolean_value = '0';
+
+                write(exprom_wp_fd, &boolean_value, sizeof(boolean_value));
+	}
 }
 
 void do_erase(int dev_fd, struct file_info *fi)
@@ -1127,6 +1212,8 @@ bool set_pci_files(int entry)
 	if(!is_valid_dev(entry))
 		return false;
 
+        snprintf(config_file, sizeof(config_file),
+                config_fmt, pci_device_path, pci_device_addrs[entry]);
 	snprintf(resource_file, sizeof(resource_file),
 		resource_fmt, pci_device_path, pci_device_addrs[entry]);
 	snprintf(enable_file, sizeof(enable_file),
@@ -1189,6 +1276,7 @@ bool choose_device(const char* dev_name, int* last_dev)
 			set_pci_files(i);
 			*last_dev = i;
 			if (!strcmp(dev_name, resource_file)
+				|| !strcmp(dev_name, config_file)
 				|| !strcmp(dev_name, pci_device_addrs[i])
 				|| (!strcmp(dev_name, PCI_SHORT_ADDR(pci_device_addrs[i]))
 					&& !strncmp(pci_device_addrs[i], "0000:", 5))) {
@@ -1202,34 +1290,103 @@ bool choose_device(const char* dev_name, int* last_dev)
 		}
 	}
 
-	printf("Using device: %s\n", resource_file);
 	return true;
+}
+
+void check_exprom_wp(int entry)
+{
+	char hfiname[256] = "";
+	bool hfifound = false;
+
+        /* default to resource0 mode unless we explicitly find the new exprom_wp file */
+        access_mode = true;
+
+	/* check the /sys/bus/pci/devices/[pci device]/infiniband directory for an hfi1_* link */
+	snprintf(ib_device_path, sizeof(ib_device_path),
+                ib_device_path_fmt, pci_device_path, pci_device_addrs[entry]);
+	DIR *dir = opendir(ib_device_path);
+        struct dirent *dentry;
+        if (!dir)
+		goto use_resource0;
+        while ((dentry = readdir(dir))) {
+		if (!strncmp(dentry->d_name, "hfi1_", 5)) {
+			if (hfifound) {
+				fprintf(stderr, "Found duplicate hfi1 instances associated with PCI device %s and %s\n", hfiname, dentry->d_name);
+				exit(1);
+			}
+			hfifound = true;
+			strcpy(hfiname, dentry->d_name);
+		}
+	}
+	closedir(dir);
+	if (!hfifound)
+		goto use_resource0;
+
+	/* attempt to open /sys/kernel/debug/hfi1/[hfiname]/exprom_wp */
+	snprintf(exprom_wp_file, sizeof(exprom_wp_file), exprom_wp_fmt, hfiname);
+	int trycnt = 0;
+	do {
+                if (trycnt > 0) {
+			printf("Waiting: %s is busy\n", exprom_wp_file);
+			sleep(5);
+		}
+		trycnt++;
+        	exprom_wp_fd = open(exprom_wp_file, O_RDWR);
+	} while ((exprom_wp_fd < 0) && (trycnt < 100) && (errno == EBUSY));
+        if (exprom_wp_fd < 0) {
+		if (errno != EBUSY)
+			goto use_resource0;
+		else {
+			fprintf(stderr, "Timeout waiting to open %s\n", exprom_wp_file);
+			exit(1);
+		}
+	}
+
+	access_mode = false;
+	printf("Using device: %s\n", config_file);
+	return;
+
+use_resource0:
+	printf("Using device: %s\n", resource_file);
+        return;
 }
 
 int do_init()
 {
-	/*
-	 * If the driver has never been loaded, the device is not
-	 * enabled. Enable the device every time.
-	 */
-	if(!enable_device()) {
-		return -1;
-	}
+	int dev_fd;
 
-	int dev_fd = open(resource_file, O_RDWR);
-	if (dev_fd < 0) {
-		fprintf(stderr, "Unable to open file [%s]\n", resource_file);
-		return -1;
-	}
+	if (!access_mode) {
 
-	reg_mem = mmap(NULL, MAP_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED,
+		/*
+		 * If the driver has never been loaded, the device is not
+		 * enabled. Enable the device every time.
+		 */
+		if(!enable_device()) {
+			return -1;
+		}
+
+		dev_fd = open(config_file, O_RDWR);
+	        if (dev_fd < 0) {
+        	        fprintf(stderr, "Unable to open file [%s]\n", config_file);
+                	return -1;
+	        }
+	} else {
+
+		dev_fd = open(resource_file, O_RDWR);
+		if (dev_fd < 0) {
+			fprintf(stderr, "Unable to open file [%s]\n", resource_file);
+			return -1;
+		}
+
+		reg_mem = mmap(NULL, MAP_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED,
 				dev_fd, 0);
 
-	if (reg_mem == MAP_FAILED) {
-		fprintf(stderr, "Unable to mmap %s, %s\n", resource_file,
-			strerror(errno));
-		close(dev_fd);
-		return -1;
+		if (reg_mem == MAP_FAILED) {
+			fprintf(stderr, "Unable to mmap %s, %s\n", resource_file,
+				strerror(errno));
+			close(dev_fd);
+			return -1;
+		}
 	}
 
 	init_eep_interface(dev_fd);
@@ -1239,10 +1396,13 @@ int do_init()
 
 void do_cleanup(int dev_fd)
 {
-	if (reg_mem)
+	if (access_mode && reg_mem)
 		munmap(reg_mem, MAP_SIZE);
 
 	close(dev_fd);
+
+        if (!access_mode && !(exprom_wp_fd<0))
+		close(exprom_wp_fd);
 }
 
 /* ========================================================================== */
@@ -1727,10 +1887,11 @@ void usage(void)
 		 "                  -d %s\n"
 		 "                  -d %s\n"
 		 "                  -d %s\n"
+		 "                  -d %s\n"
 		 "                  -d %d\n"
 		 "                  -d all - to select all available devices\n"
 		 "                  -d     - to list all available devices\n",
-		 resource_file, pci_device_addrs[0], PCI_SHORT_ADDR(pci_device_addrs[0]), 0);
+		 resource_file, config_file, pci_device_addrs[0], PCI_SHORT_ADDR(pci_device_addrs[0]), 0);
 
 	printf("\n"
 	       "Usage: hfi1_eprom [-d device] -u [loaderfile] [driverfile]\n"
@@ -2117,6 +2278,8 @@ int main(int argc, char **argv)
 	int last_dev = -1;
 
 	while(choose_device(dev_name, &last_dev)) {
+
+                check_exprom_wp(last_dev);
 
 		/* do steps for all operations */
 
