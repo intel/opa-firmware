@@ -136,6 +136,7 @@ void *reg_mem = NULL;
 #define IMAGE_MAGIC_VAL 0x4f5041696d616765
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+const char pci_eprom_vendor[] = "0x8086";
 const char pci_eprom_device[] = "0x24f0";
 
 struct file_info {
@@ -250,6 +251,8 @@ const char resource_fmt[] = "%s/%s/resource0";
 char resource_file[sizeof(pci_device_path) + sizeof(resource_fmt) + MAX_PCI_BUS_LEN] = "";
 const char enable_fmt[] = "%s/%s/enable";
 char enable_file[sizeof(pci_device_path) + sizeof(enable_fmt) + MAX_PCI_BUS_LEN] = "";
+const char vendor_fmt[] = "%s/%s/vendor";
+char vendor_file[sizeof(pci_device_path) + sizeof(vendor_fmt) + MAX_DEV_NAME] = "";
 const char device_fmt[] = "%s/%s/device";
 char device_file[sizeof(pci_device_path) + sizeof(device_fmt) + MAX_DEV_NAME] = "";
 const char *command;		/* derived command name */
@@ -1541,6 +1544,22 @@ void enumerate_devices(void)
 		FILE *file;
 		char buf[7];
 		char *buf_ptr;
+
+                snprintf(vendor_file, sizeof(vendor_file), vendor_fmt, pci_device_path, dentry->d_name);
+
+                /* try to open the file, it may error, ignore */
+                file = fopen(vendor_file, "r");
+                if (!file)
+                        continue;
+
+                memset(buf, '\0', sizeof(buf));
+                buf_ptr = fgets(buf, sizeof(buf), file);
+                fclose(file);
+                if (!buf_ptr)
+                        continue;
+
+                if (strncmp(buf, pci_eprom_vendor, 6))
+                        continue;
 
 		snprintf(device_file, sizeof(device_file), device_fmt, pci_device_path, dentry->d_name);
 
